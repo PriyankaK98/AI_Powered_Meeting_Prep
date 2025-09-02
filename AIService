@@ -1,0 +1,77 @@
+public without sharing class AIService {
+  // This method sends a prompt to the OpenAI API using the external credential
+	public static String getChatResponse(String prompt) {
+        try {
+            Http http = new Http();
+            HttpRequest req = new HttpRequest();
+        
+            // Use Named Credential
+            req.setEndpoint('callout:OpenAI_API/v1/chat/completions');
+            req.setMethod('POST');
+            req.setHeader('Content-Type', 'application/json'); 
+            req.setHeader('Authorization', 'Bearer '+System.Label.Api_Key);
+        
+            Map<String, Object> bodyMap = new Map<String, Object>();
+            bodyMap.put('model', 'openai/gpt-oss-20b:free');
+            bodyMap.put('messages', new List<Map<String, String>>{
+            new Map<String, String>{ 'role' => 'user', 'content' => prompt }
+            });
+            bodyMap.put('temperature', 0.3); // Lower for more consistent business advice
+            bodyMap.put('max_tokens', 800); // Increased for comprehensive response
+            
+            req.setBody(JSON.serialize(bodyMap));
+            req.setTimeout(30000); // 30 second timeout
+            
+            HttpResponse res = http.send(req);
+        
+            if (res.getStatusCode() == 200) {
+                System.debug('AI Raw Response: ' + res.getBody());
+                return parseAIResponse(res.getBody());
+            } else {
+                System.debug('AI API Error: ' + res.getStatusCode() + ' - ' + res.getBody());
+                return generateFallbackResponse();
+            }
+        
+        } catch (CalloutException e) {
+            System.debug('Callout Exception in AI service: ' + e.getMessage());
+            return generateFallbackResponse();
+        } catch (Exception e) {
+            System.debug('General Exception in AI service: ' + e.getMessage());
+            return generateFallbackResponse();
+        }
+	}
+
+	private static String parseAIResponse(String responseBody) {
+		try {
+            Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(responseBody);
+            List<Object> choices = (List<Object>) result.get('choices');
+            
+            if (!choices.isEmpty()) {
+            	Map<String, Object> firstChoice = (Map<String, Object>) choices.get(0);
+                if (firstChoice.containsKey('message')) {
+                    Map<String, Object> message = (Map<String, Object>) firstChoice.get('message');
+                    String content = (String) message.get('content');
+                    return String.isNotBlank(content) ? content.trim() : generateFallbackResponse();
+                } else if (firstChoice.containsKey('text')) {
+                    String content = (String) firstChoice.get('text');
+                    return String.isNotBlank(content) ? content.trim() : generateFallbackResponse();
+                }
+			}
+		} catch (Exception e) {
+			System.debug('Error parsing AI response: ' + e.getMessage());
+		}
+
+		return generateFallbackResponse();
+	}
+
+	private static String generateFallbackResponse() {
+        return '## Meeting Preparation Required\n\n' +
+        '• Review account history and previous interactions\n' +
+        '• Prepare questions about current business challenges\n' +
+        '• Research recent industry trends affecting this client\n' +
+        '• Identify potential upsell or cross-sell opportunities\n' +
+        '• Prepare materials relevant to their business size and industry\n\n' +
+        '**Note**: AI insights temporarily unavailable. Use account data above for context.';
+    }
+
+}
