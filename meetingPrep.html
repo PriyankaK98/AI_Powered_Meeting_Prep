@@ -1,0 +1,16 @@
+<template>
+    <lightning-card title="Meeting Prep Assistant" icon-name="custom:custom14">
+        <lightning-button label="Generate Prep" onclick={handleGenerate} class="slds-m-around_small"></lightning-button>
+        
+        <template if:true={meetingPrep}>
+            <div class="slds-p-left_medium">
+                <pre>{meetingPrep}</pre>
+            </div>
+        </template>
+        <template if:true={error}>
+            <div class="slds-p-left_medium">
+                <p class="slds-text-color_error">{error}</p>
+            </div>
+        </template>
+    </lightning-card>
+</template>
