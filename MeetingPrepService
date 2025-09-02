@@ -1,0 +1,388 @@
+public without sharing class MeetingPrepService {
+
+    @AuraEnabled(cacheable=true)
+	public static String getMeetingPrep(Id accountId) {
+        try {
+             // Validate input
+             if (accountId == null) {
+                 return 'Error: Invalid account ID provided.';
+             }
+            
+            // Query Salesforce data efficiently with null checks
+            Account acc = queryAccount(accountId);
+            if (acc == null) {
+            	return 'Error: Account not found or insufficient permissions.';
+            }
+            
+            List<Opportunity> opps = queryOpportunities(accountId);
+            List<Task> tasks = queryRecentTasks(accountId);
+            
+            // Prepare enhanced masked data for AI
+            Map<String,Object> safeData = prepareSafeData(acc, opps, tasks);
+            
+            // Prepare raw data for display
+            Map<String,Object> rawData = prepareRawData(acc, opps, tasks);
+            
+            // Enhanced prompt for better AI response
+            String prompt = buildEnhancedPrompt(safeData);
+            
+            // Call AI with safe data
+            String aiRawResponse = AIService.getChatResponse(prompt);
+            
+            // Format AI response into sections
+            String aiFormatted = formatAIResponse(aiRawResponse);
+            
+            // Build comprehensive final output
+            return buildFinalOutput(rawData, aiFormatted);
+
+		} catch (Exception e) {
+            System.debug('Error in getMeetingPrep: ' + e.getMessage());
+            return 'Error generating meeting preparation. Please try again or contact your administrator.';
+		}
+	}
+
+    // ---------------- Helper Methods ----------------
+     private static Account queryAccount(Id accountId) {
+        try {
+            return [
+                SELECT Id, Name, Industry, AnnualRevenue, Type, NumberOfEmployees
+                FROM Account
+                WHERE Id = :accountId
+                LIMIT 1
+            ];
+        } catch (QueryException e) {
+            System.debug('Error querying account: ' + e.getMessage());
+            return null;
+        }
+	}
+
+    private static List<Opportunity> queryOpportunities(Id accountId) {
+        try {
+            return [
+                SELECT Id, Name, StageName, Amount, CloseDate, Probability, Type
+                FROM Opportunity
+                WHERE AccountId = :accountId
+                AND IsClosed = false
+                ORDER BY CloseDate ASC, Amount DESC
+                LIMIT 5
+            ];
+        } catch (QueryException e) {
+            System.debug('Error querying opportunities: ' + e.getMessage());
+            return new List<Opportunity>();
+        }
+    }
+
+    private static List<Task> queryRecentTasks(Id accountId) {
+        try {
+            return [
+                SELECT Id, Subject, ActivityDate, Status, Priority, Type
+                FROM Task
+                WHERE AccountId = :accountId
+                AND ActivityDate >= LAST_N_DAYS:90
+                ORDER BY ActivityDate DESC
+                LIMIT 5
+            ];
+        } catch (QueryException e) {
+            System.debug('Error querying tasks: ' + e.getMessage());
+            return new List<Task>();
+        }
+    }
+    
+    private static Map<String,Object> prepareSafeData(Account acc, List<Opportunity> opps, List<Task> tasks) {
+        Map<String,Object> safeData = new Map<String,Object>();
+        
+        // Enhanced company profile
+        safeData.put('companyProfile', new Map<String,Object>{
+            'industry' => acc.Industry,
+            'revenueRange' => categorizeRevenue(acc.AnnualRevenue),
+            'companySize' => categorizeEmployees(acc.NumberOfEmployees),
+            'segment' => determineSegment(acc.Industry, acc.AnnualRevenue)
+        });
+        
+        // Enhanced opportunity data
+        List<Map<String,Object>> oppData = new List<Map<String,Object>>();
+        for (Opportunity o : opps) {
+            oppData.add(new Map<String,Object>{
+                'stage' => o.StageName,
+                'valueRange' => categorizeAmount(o.Amount),
+                'timeframe' => categorizeTiming(o.CloseDate),
+                'probability' => o.Probability,
+                'priority' => determinePriority(o.StageName, o.CloseDate, o.Amount)
+            });
+        }
+        safeData.put('opportunities', oppData);
+        
+        // Activity insights instead of specific activities
+        safeData.put('engagement', new Map<String,Object>{
+            'level' => categorizeActivityLevel(tasks.size()),
+            'lastTouchpoint' => getLastActivityTimeframe(tasks),
+            'activityTypes' => getActivityTypeSummary(tasks)
+        });
+        
+        return safeData;
+	}
+
+    private static Map<String,Object> prepareRawData(Account acc, List<Opportunity> opps, List<Task> tasks) {
+        Map<String,Object> rawData = new Map<String,Object>();
+        rawData.put('accountName', acc.Name);
+        rawData.put('industry', acc.Industry ?? 'Not specified');
+        rawData.put('annualRevenue', acc.AnnualRevenue ?? 0);
+        rawData.put('employeeCount', acc.NumberOfEmployees ?? 0);
+        
+        List<Map<String,Object>> oppList = new List<Map<String,Object>>();
+        for (Opportunity o : opps) {
+            oppList.add(new Map<String,Object>{
+                'name' => o.Name,
+                'stage' => o.StageName,
+                'amount' => o.Amount ?? 0,
+                'closeDate' => o.CloseDate,
+                'probability' => o.Probability ?? 0
+            });
+        }
+        rawData.put('opportunities', oppList);
+        
+        List<Map<String,Object>> taskList = new List<Map<String,Object>>();
+        for (Task t : tasks) {
+            taskList.add(new Map<String,Object>{
+                'subject' => t.Subject,
+                'activityDate' => t.ActivityDate,
+                'status' => t.Status,
+                'type' => t.Type
+            });
+        }
+        rawData.put('recentActivities', taskList);
+        
+        return rawData;
+    }
+
+    // Enhanced prompt building
+
+	private static String buildEnhancedPrompt(Map<String,Object> safeData) {
+    	return 'You are an expert B2B sales strategist preparing a sales representative for an upcoming client meeting.\n\n' + 
+            'CONTEXT:\n' + 
+            '- Industry: ' + 
+            getNestedValue(safeData, 'companyProfile.industry', 'Not specified') + '\n' + '- Company Size: ' + 
+            getNestedValue(safeData, 'companyProfile.revenueRange', 'Unknown') + ' revenue, ' + 
+            getNestedValue(safeData, 'companyProfile.companySize', 'Unknown') + ' employees\n' + 
+            '- Active Opportunities: ' + ((List<Object>)safeData.get('opportunities')).size() + 
+            ' in pipeline\n' + '- Engagement Level: ' + 
+            getNestedValue(safeData, 'engagement.level', 'Unknown') + 
+            '\n\n' + 'TASK: Create a strategic meeting preparation guide with specific, actionable insights.\n\n' + 
+            'OUTPUT FORMAT:\n' + '## Executive Summary\n' + '[2-3 sentences about account status and meeting focus]\n\n' + 
+            '## Key Talking Points\n' + '• [Specific discussion topics based on opportunity stages]\n' + 
+            '• [Industry-relevant challenges to address]\n' + 
+            '• [Value propositions aligned to their business size]\n\n' + 
+            '## Strategic Actions\n' + 
+            '• [Pre-meeting research tasks]\n' + 
+            '• [Materials to prepare]\n' + 
+            '• [Follow-up actions to propose]\n\n' + 
+            '## Risk Assessment\n' + 
+            '• [Potential objections to anticipate]\n' + 
+            '• [Competitive threats to address]\n\n' + 
+            'REQUIREMENTS:\n' + 
+            '- Be specific and actionable\n' + 
+            '- Focus on business value\n' + 
+            '- Consider the opportunity stages in pipeline\n' + 
+            '- If data is limited, explicitly note what additional research is needed\n\n' + 
+            'DATA:\n' + JSON.serialize(safeData);
+    }
+        
+        // Enhanced output building
+    private static String buildFinalOutput(Map<String,Object> rawData, String aiFormatted) {
+        String output = '';
+        
+        // Enhanced header with more context
+        output += '=== Meeting Prep Guide ===\n';
+        output += 'Company: ' + rawData.get('accountName') + '\n';
+        output += 'Industry: ' + rawData.get('industry') + '\n';
+        output += 'Revenue: $' + formatCurrency((Decimal)rawData.get('annualRevenue')) + '\n';
+        output += 'Employees: ' + rawData.get('employeeCount') + '\n\n';
+        
+        // Enhanced opportunities section
+        output += '--- Active Opportunities ---\n';
+        List<Map<String,Object>> oppList = (List<Map<String,Object>>) rawData.get('opportunities');
+        if (!oppList.isEmpty()) {
+            for (Integer i = 0; i < oppList.size(); i++) {
+                Map<String,Object> o = oppList[i];
+                output += (i + 1) + '. ' + o.get('name') + '\n';
+                output += ' Stage: ' + o.get('stage') + ' (' + o.get('probability') + '% probability)\n';
+                output += ' Value: $' + formatCurrency((Decimal)o.get('amount')) + '\n';
+                output += ' Target Close: ' + formatDate((Date)o.get('closeDate')) + '\n\n';
+            }
+        } else {
+        		output += 'No active opportunities found.\n\n';
+        }
+        
+        // Enhanced recent activities
+        output += '--- Recent Engagement ---\n';
+        List<Map<String,Object>> taskList = (List<Map<String,Object>>) rawData.get('recentActivities');
+        if (!taskList.isEmpty()) {
+            for (Map<String,Object> t : taskList) {
+            	output += '• ' + formatDate((Date)t.get('activityDate')) + ': ' + t.get('subject') + '\n';
+            }
+        } else {
+        	output += 'No recent activities in the last 90 days.\n';
+        }
+        output += '\n';
+        
+        // AI-generated strategic insights
+        output += '--- Strategic Insights ---\n' + aiFormatted;
+        
+        return output;
+    }
+
+    // Enhanced response formatting
+    private static String formatAIResponse(String aiResp) {
+        if (String.isBlank(aiResp)) {
+            return 'Strategic insights temporarily unavailable. Focus on reviewing opportunity stages and recent activities above.';
+        }
+    
+        String cleaned = aiResp.trim();
+    
+        // Ensure required section headers exist
+        if (!cleaned.contains('Executive Summary')) {
+            cleaned = '## Executive Summary\n' + cleaned;
+        }
+        if (!cleaned.contains('Key Talking Points')) {
+            cleaned += '\n\n## Key Talking Points\n(Details not provided by AI - add manually)\n';
+        }
+        if (!cleaned.contains('Strategic Actions')) {
+            cleaned += '\n\n## Strategic Actions\n(Details not provided by AI - add manually)\n';
+        }
+    
+        return cleaned;
+    }
+
+    // Helper methods for categorization
+    private static String categorizeRevenue(Decimal rev) {
+        if (rev == null || rev == 0) return 'Unknown';
+        if (rev < 1000000) return 'Under $1M';
+        if (rev < 10000000) return '$1M-$10M';
+        if (rev < 100000000) return '$10M-$100M';
+        return 'Over $100M';
+    }
+
+    private static String categorizeEmployees(Integer emp) {
+        if (emp == null || emp == 0) return 'Unknown';
+        if (emp < 50) return 'Small (1-49)';
+        if (emp < 200) return 'Medium (50-199)';
+        if (emp < 1000) return 'Large (200-999)';
+        return 'Enterprise (1000+)';
+    }
+
+    private static String categorizeAmount(Decimal amt) {
+        if (amt == null || amt == 0) return 'Unknown';
+        if (amt < 25000) return 'Under $25K';
+        if (amt < 100000) return '$25K-$100K';
+        if (amt < 500000) return '$100K-$500K';
+        return 'Over $500K';
+    }
+
+	private static String categorizeTiming(Date closeDate) {
+        if (closeDate == null) return 'Unknown';
+        Date today = Date.today();
+        Integer daysDiff = today.daysBetween(closeDate);
+        
+        if (daysDiff < 0) return 'Overdue';
+        if (daysDiff <= 30) return 'This Month';
+        if (daysDiff <= 90) return 'Next Quarter';
+        return 'Future';
+	}
+
+	private static String determineSegment(String industry, Decimal revenue) {
+        if (String.isBlank(industry)) return 'Unknown';
+        if (revenue == null || revenue < 10000000) return 'SMB';
+        if (revenue < 100000000) return 'Mid-Market';
+        return 'Enterprise';
+	}
+
+	private static String determinePriority(String stage, Date closeDate, Decimal amount) {
+        Integer priority = 0;
+        
+        // Stage-based priority
+        if (stage == 'Closed Won') priority += 0;
+        else if (stage == 'Negotiation/Review') priority += 3;
+        else if (stage == 'Proposal/Price Quote') priority += 2;
+        else if (stage == 'Value Proposition') priority += 1;
+        
+        // Date-based priority
+        if (closeDate != null) {
+        Integer daysDiff = Date.today().daysBetween(closeDate);
+        if (daysDiff <= 30) priority += 2;
+        else if (daysDiff <= 90) priority += 1;
+        }
+        
+        // Amount-based priority
+        if (amount != null && amount > 100000) priority += 1;
+        
+        if (priority >= 4) return 'Critical';
+        if (priority >= 2) return 'High';
+        return 'Medium';
+	}
+
+	private static String categorizeActivityLevel(Integer taskCount) {
+        if (taskCount == null || taskCount == 0) return 'Low';
+        if (taskCount <= 2) return 'Medium';
+        	return 'High';
+    }
+        
+    private static String getLastActivityTimeframe(List<Task> tasks) {
+        if (tasks.isEmpty()) return 'No recent activity';
+        
+        Date lastActivity = tasks[0].ActivityDate;
+        if (lastActivity == null) return 'Unknown';
+        
+        Integer daysSince = lastActivity.daysBetween(Date.today());
+        if (daysSince <= 7) return 'This week';
+        if (daysSince <= 30) return 'This month';
+        if (daysSince <= 90) return 'Last 3 months';
+        return 'Over 3 months ago';
+    }
+        
+	private static List<String> getActivityTypeSummary(List<Task> tasks) {
+        Set<String> types = new Set<String>();
+        for (Task t : tasks) {
+        	if (String.isNotBlank(t.Type)) {
+        		types.add(t.Type);
+        	}
+        }
+        return new List<String>(types);
+	}
+
+	// Utility methods
+	private static String getNestedValue(Map<String,Object> data, String path, String defaultValue) {
+        try {
+            List<String> parts = path.split('\\.');
+            Object current = data;
+            
+            for (String part : parts) {
+            	if (current instanceof Map<String,Object>) {
+            		current = ((Map<String,Object>)current).get(part);
+            	} else {
+            		return defaultValue;
+            	}
+            }            
+            return current != null ? String.valueOf(current) : defaultValue;
+            
+        } catch (Exception e) {
+        	return defaultValue;
+        }
+	}
+
+    private static String formatCurrency(Decimal amount) {
+        if (amount == null || amount == 0) return '0';
+        
+        if (amount >= 1000000) {
+        	return String.valueOf((amount / 1000000).setScale(1)) + 'M';
+        } else if (amount >= 1000) {
+        	return String.valueOf((amount / 1000).setScale(0)) + 'K';
+        }
+        
+        return String.valueOf(amount.setScale(0));
+	}
+        
+    private static String formatDate(Date d) {
+        if (d == null) return 'Not set';
+        return d.format();
+    }
+}
