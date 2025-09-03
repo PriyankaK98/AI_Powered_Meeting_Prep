@@ -17,22 +17,22 @@ public without sharing class MeetingPrepService {
             List<Opportunity> opps = queryOpportunities(accountId);
             List<Task> tasks = queryRecentTasks(accountId);
             
-            // Prepare enhanced masked data for AI
+            // Prepare masked data for AI
             Map<String,Object> safeData = prepareSafeData(acc, opps, tasks);
             
             // Prepare raw data for display
             Map<String,Object> rawData = prepareRawData(acc, opps, tasks);
             
-            // Enhanced prompt for better AI response
+            // Generate prompt
             String prompt = buildEnhancedPrompt(safeData);
             
-            // Call AI with safe data
+            // Call AI with masked data
             String aiRawResponse = AIService.getChatResponse(prompt);
             
             // Format AI response into sections
             String aiFormatted = formatAIResponse(aiRawResponse);
             
-            // Build comprehensive final output
+            // Build final output
             return buildFinalOutput(rawData, aiFormatted);
 
 		} catch (Exception e) {
@@ -155,8 +155,7 @@ public without sharing class MeetingPrepService {
         return rawData;
     }
 
-    // Enhanced prompt building
-
+    // Prompt building
 	private static String buildEnhancedPrompt(Map<String,Object> safeData) {
     	return 'You are an expert B2B sales strategist preparing a sales representative for an upcoming client meeting.\n\n' + 
             'CONTEXT:\n' + 
@@ -187,18 +186,18 @@ public without sharing class MeetingPrepService {
             'DATA:\n' + JSON.serialize(safeData);
     }
         
-        // Enhanced output building
+        // Output building
     private static String buildFinalOutput(Map<String,Object> rawData, String aiFormatted) {
         String output = '';
         
-        // Enhanced header with more context
+        // Header with more context
         output += '=== Meeting Prep Guide ===\n';
         output += 'Company: ' + rawData.get('accountName') + '\n';
         output += 'Industry: ' + rawData.get('industry') + '\n';
         output += 'Revenue: $' + formatCurrency((Decimal)rawData.get('annualRevenue')) + '\n';
         output += 'Employees: ' + rawData.get('employeeCount') + '\n\n';
         
-        // Enhanced opportunities section
+        // Opportunities section
         output += '--- Active Opportunities ---\n';
         List<Map<String,Object>> oppList = (List<Map<String,Object>>) rawData.get('opportunities');
         if (!oppList.isEmpty()) {
@@ -213,7 +212,7 @@ public without sharing class MeetingPrepService {
         		output += 'No active opportunities found.\n\n';
         }
         
-        // Enhanced recent activities
+        // Recent activities
         output += '--- Recent Engagement ---\n';
         List<Map<String,Object>> taskList = (List<Map<String,Object>>) rawData.get('recentActivities');
         if (!taskList.isEmpty()) {
@@ -231,7 +230,7 @@ public without sharing class MeetingPrepService {
         return output;
     }
 
-    // Enhanced response formatting
+    // Response formatting
     private static String formatAIResponse(String aiResp) {
         if (String.isBlank(aiResp)) {
             return 'Strategic insights temporarily unavailable. Focus on reviewing opportunity stages and recent activities above.';
