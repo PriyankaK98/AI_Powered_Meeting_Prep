@@ -1,5 +1,5 @@
 public without sharing class AIService {
-  // This method sends a prompt to the OpenAI API using the external credential
+  // Sends a prompt to the OpenAI API using the external credential
 	public static String getChatResponse(String prompt) {
         try {
             Http http = new Http();
@@ -17,7 +17,7 @@ public without sharing class AIService {
             new Map<String, String>{ 'role' => 'user', 'content' => prompt }
             });
             bodyMap.put('temperature', 0.3); // Lower for more consistent business advice
-            bodyMap.put('max_tokens', 800); // Increased for comprehensive response
+            bodyMap.put('max_tokens', 800); // Increased for better response
             
             req.setBody(JSON.serialize(bodyMap));
             req.setTimeout(30000); // 30 second timeout
