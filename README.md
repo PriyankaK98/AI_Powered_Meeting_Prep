@@ -22,18 +22,7 @@ A Salesforce tool that helps sales reps prep for calls faster by generating inst
 3. AI generates summaries and talking points.
 4. De-mask the response and display it in a clear, actionable format.
 
-## Getting Started
-
-1. Clone the repo.
-2. Deploy Apex classes and LWC components to Salesforce.
-3. Configure Named Credentials for AI API calls.
-4. Test with anonymized account data.
-
 ## Security
 
 - No customer names or exact deal sizes are exposed.
 - Data is anonymized before AI processing.
-
-## License
-
-MIT
